@@ -1,141 +1,138 @@
 import dayjs from "dayjs";
 import { FastifyInstance } from "fastify";
-import { z } from 'zod'
+import { z } from "zod";
 import { prisma } from "./lib/prisma";
 
 export async function appRoutes(app: FastifyInstance) {
-
-    app.post('/habits', async (request) => {
-        const createHabitBody = z.object({
-            //verifica se os dados estao corretos
-            title: z.string(),
-            weekDays: z.array(z.number().
-                min(0).max(6)
-            )
-        })
-        
-        const { title, weekDays } = createHabitBody.parse(request.body)
-        const today = dayjs().startOf('day').toDate()
-
-        await prisma.habit.create({
-            data: {
-                title,
-                created_at: today,
-                weekDays:{
-                    create: weekDays.map( weekDays => {
-                        return {
-                            week_day: weekDays,
-                        }
-                    })
-                }
-            }
-        })
+  app.post("/habits", async (request) => {
+    const createHabitBody = z.object({
+      //verifica se os dados estao corretos
+      title: z.string(),
+      weekDays: z.array(z.number().min(0).max(6)),
     });
 
-    app.get('/day', async (request) =>{
-        const getDayParams = z.object({
-            //busca qual dia/mes/ano você escolheu
-            date: z.coerce.date()
-        })
+    const { title, weekDays } = createHabitBody.parse(request.body);
+    const today = dayjs().startOf("day").toDate();
 
-        const { date } = getDayParams.parse(request.query)
-        const parsedDate = dayjs(date).startOf('day')
-        const weekDay = parsedDate.get('day')
+    await prisma.habit.create({
+      data: {
+        title,
+        created_at: today,
+        weekDays: {
+          create: weekDays.map((weekDays) => {
+            return {
+              week_day: weekDays,
+            };
+          }),
+        },
+      },
+    });
+  });
 
-        //retorna todos os hábitos possiveis
-        const possibleHabits = await prisma.habit.findMany({
-            where: {
-                created_at:{
-                    lte: date,
-                },
-                weekDays: {
-                    some: {
-                        week_day: weekDay
-                    }
-                }
-            }
-        });
-
-        //hábitos que ja foram completados
-        const day = await prisma.day.findUnique({
-            where:{
-                date: parsedDate.toDate(),
-            },
-            include: {
-                dayHabits: true,
-            }
-        })
-
-        const completedHabits = day?.dayHabits.map( dayHabit => {
-            return dayHabit.habit_id
-        })
-
-        return {
-            possibleHabits,
-            completedHabits
-        }
+  app.get("/day", async (request) => {
+    const getDayParams = z.object({
+      //busca qual dia/mes/ano você escolheu
+      date: z.coerce.date(),
     });
 
-    app.patch('/habits/:id/toggle', async (resquest) => {
-        //marcar e desmarcar um habito
-        //route param => parametro de identificacao
-        const toggleHabitParams = z.object({
-            id: z.string().uuid(),
-        })
+    const { date } = getDayParams.parse(request.query);
+    const parsedDate = dayjs(date).startOf("day");
+    const weekDay = parsedDate.get("day");
 
-        const { id } = toggleHabitParams.parse(resquest.params)
+    //retorna todos os hábitos possiveis
+    const possibleHabits = await prisma.habit.findMany({
+      where: {
+        created_at: {
+          lte: date,
+        },
+        weekDays: {
+          some: {
+            week_day: weekDay,
+          },
+        },
+      },
+    });
 
-        const today = dayjs().startOf('day').toDate()
+    //hábitos que ja foram completados
+    const day = await prisma.day.findUnique({
+      where: {
+        date: parsedDate.toDate(),
+      },
+      include: {
+        dayHabits: true,
+      },
+    });
 
-        let day = await prisma.day.findUnique({
-            where: {
-                date: today
-            }
-        })
+    const completedHabits =
+      day?.dayHabits.map((dayHabit) => {
+        return dayHabit.habit_id;
+      }) ?? [];
 
-        if (!day){
-            day = await prisma.day.create({
-                data: {
-                    date: today
-                }
-            })
-        }
+    return {
+      possibleHabits,
+      completedHabits,
+    };
+  });
 
-        const dayHabit = await prisma.dayHabit.findUnique({
-            where: {
-                day_id_habit_id: {
-                    day_id: day.id,
-                    habit_id: id
-                }
-            }
-        })
+  app.patch("/habits/:id/toggle", async (resquest) => {
+    //marcar e desmarcar um habito
+    //route param => parametro de identificacao
+    const toggleHabitParams = z.object({
+      id: z.string().uuid(),
+    });
 
-        if (dayHabit) {
-            //desmarcar habito
-            await prisma.dayHabit.delete({
-                where: {
-                    id: dayHabit.id,
-                }
-            })
-        } else {
-            //marcar o habito
-            await prisma.dayHabit.create({
-                data: {
-                    day_id: day.id,
-                    habit_id: id
-                }
-            })
-        }
+    const { id } = toggleHabitParams.parse(resquest.params);
 
-    })
+    const today = dayjs().startOf("day").toDate();
 
-    app.get('/summary', async () => {
-        // retorna lista de total de habitos e habitos completados
-        // [{date: 19/01, amount: 5, completed: 1}, {date: 20/01, amount: 2, completed: 2}, {}]
-        // Query mais complexa, mais condições e relacionamentos => SQL na mao (RAW)
-        // Prisma ORM: RAW SQL => SQLite
+    let day = await prisma.day.findUnique({
+      where: {
+        date: today,
+      },
+    });
 
-        const summary = await prisma.$queryRaw`
+    if (!day) {
+      day = await prisma.day.create({
+        data: {
+          date: today,
+        },
+      });
+    }
+
+    const dayHabit = await prisma.dayHabit.findUnique({
+      where: {
+        day_id_habit_id: {
+          day_id: day.id,
+          habit_id: id,
+        },
+      },
+    });
+
+    if (dayHabit) {
+      //desmarcar habito
+      await prisma.dayHabit.delete({
+        where: {
+          id: dayHabit.id,
+        },
+      });
+    } else {
+      //marcar o habito
+      await prisma.dayHabit.create({
+        data: {
+          day_id: day.id,
+          habit_id: id,
+        },
+      });
+    }
+  });
+
+  app.get("/summary", async () => {
+    // retorna lista de total de habitos e habitos completados
+    // [{date: 19/01, amount: 5, completed: 1}, {date: 20/01, amount: 2, completed: 2}, {}]
+    // Query mais complexa, mais condições e relacionamentos => SQL na mao (RAW)
+    // Prisma ORM: RAW SQL => SQLite
+
+    const summary = await prisma.$queryRaw`
             SELECT 
                 D.id, 
                 D.date,
@@ -156,8 +153,8 @@ export async function appRoutes(app: FastifyInstance) {
                         AND H.created_at <= D.date
                 ) as amount
             FROM days D  
-        `
+        `;
 
-        return summary
-    })
+    return summary;
+  });
 }
